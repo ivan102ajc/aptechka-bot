@@ -13,12 +13,5 @@ if errorlevel 1 (
   exit /b
 )
 
-if not exist venv (
-  echo Первый запуск: готовлю окружение, это займёт минуту...
-  %PY% -m venv venv
-  venv\Scripts\python -m pip install --upgrade pip -q
-  venv\Scripts\python -m pip install -r requirements.txt -q
-)
-
-venv\Scripts\python bot.py
+%PY% bot.py
 pause

@@ -24,13 +24,8 @@ import json
 import logging
 import os
 
-import aiohttp
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.state import State
-from aiogram.fsm.storage.base import BaseStorage, StorageKey
-from aiogram.types import Update
+from tg import (BaseStorage, Bot, DefaultBotProperties, Dispatcher, ParseMode, State, StorageKey,
+                http_request)
 
 import bot as core
 
@@ -107,10 +102,10 @@ def _sig():
 
 async def _s3(method: str, iam: str, data: bytes | None = None):
     url = f"{S3_URL}/{BUCKET}/{DB_KEY}"
-    async with aiohttp.ClientSession(headers={"Authorization": f"Bearer {iam}"}) as s:
-        async with s.request(method, url, data=data, timeout=aiohttp.ClientTimeout(total=20)) as r:
-            body = await r.read() if method == "GET" else b""
-            return r.status, r.headers.get("ETag"), body
+    status, headers, body = await http_request(method, url, data=data, timeout=20,
+                                               headers={"Authorization": f"Bearer {iam}"})
+    etag = next((v for k, v in headers.items() if k.lower() == "etag"), None)
+    return status, etag, body if method == "GET" else b""
 
 
 async def pull_db(iam: str) -> None:
@@ -222,7 +217,7 @@ async def handle(event, context) -> dict:
             body = event.get("body") or "{}"
             if event.get("isBase64Encoded"):
                 body = base64.b64decode(body).decode("utf-8")
-            update = Update.model_validate(json.loads(body), context={"bot": bot})
+            update = json.loads(body)
             try:
                 await dp.feed_update(bot, update)
             except Exception:

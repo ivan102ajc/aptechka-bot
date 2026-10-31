@@ -18,23 +18,16 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote_plus
 
-import aiohttp
-from aiogram import Bot, Dispatcher, F, Router
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.exceptions import TelegramAPIError
-from aiogram.filters import Command, CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-                           InlineKeyboardMarkup, KeyboardButton, Message,
-                           ReplyKeyboardMarkup)
+from tg import (Bot, CallbackQuery, Command, CommandStart, DefaultBotProperties, Dispatcher, F,
+                FSMContext, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, Message,
+                ParseMode, ReplyKeyboardMarkup, Router, State, StatesGroup, TelegramAPIError,
+                fetch_json)
 
 import analogs
 import symptoms as sym
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-BOT_VERSION = "1.5"   # рассылка «Бот обновлён» — только при смене первых двух цифр
+BOT_VERSION = "1.5.1"   # рассылка «Бот обновлён» — только при смене первых двух цифр
 WHATS_NEW = (
     "🆕 <b>Бот обновлён!</b>\n\n"
     "• 📍 Аптеки рядом: бот определяет ваш адрес, отмечает аптеки на вашей улице, "
@@ -689,12 +682,11 @@ async def nominatim(path: str, params: dict) -> object:
             await asyncio.sleep(wait)
         _nomi_last = time.monotonic()
     full = {**params, "format": "jsonv2", "accept-language": "ru"}
-    async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as s:
-        async with s.get(NOMINATIM_URL + path, params=full,
-                         timeout=aiohttp.ClientTimeout(total=NOMINATIM_TIMEOUT_S)) as r:
-            if r.status != 200:
-                raise RuntimeError(f"Nominatim HTTP {r.status}")
-            return await r.json(content_type=None)
+    status, js = await fetch_json("GET", NOMINATIM_URL + path, params=full,
+                                  headers={"User-Agent": USER_AGENT}, timeout=NOMINATIM_TIMEOUT_S)
+    if status != 200:
+        raise RuntimeError(f"Nominatim HTTP {status}")
+    return js
 
 
 def _addr_from_nominatim(a: dict) -> dict:
@@ -761,25 +753,24 @@ async def overpass_pharmacies(lat: float, lon: float) -> list[dict]:
     query = (f'[out:json][timeout:{OVERPASS_TIMEOUT_S - 5}];'
              f'(node["amenity"="pharmacy"]({box});way["amenity"="pharmacy"]({box}););out center 150;')
 
-    async def one(session, url):
-        async with session.post(url, data={"data": query}) as r:
-            if r.status != 200:
-                raise RuntimeError(f"HTTP {r.status}")
-            return parse_pharmacies(await r.json(content_type=None))
+    async def one(url):
+        status, js = await fetch_json("POST", url, form={"data": query},
+                                      headers={"User-Agent": USER_AGENT}, timeout=OVERPASS_TIMEOUT_S)
+        if status != 200:
+            raise RuntimeError(f"HTTP {status}")
+        return parse_pharmacies(js)
 
-    timeout = aiohttp.ClientTimeout(total=OVERPASS_TIMEOUT_S)
-    async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}, timeout=timeout) as s:
-        tasks = [asyncio.create_task(one(s, u)) for u in OVERPASS_MIRRORS]
-        errors = []
-        try:
-            for fut in asyncio.as_completed(tasks):
-                try:
-                    return await fut
-                except Exception as e:
-                    errors.append(repr(e))
-        finally:
-            for t in tasks:
-                t.cancel()
+    tasks = [asyncio.create_task(one(u)) for u in OVERPASS_MIRRORS]
+    errors = []
+    try:
+        for fut in asyncio.as_completed(tasks):
+            try:
+                return await fut
+            except Exception as e:
+                errors.append(repr(e))
+    finally:
+        for t in tasks:
+            t.cancel()
     raise RuntimeError("Overpass недоступен: " + "; ".join(errors))
 
 
@@ -789,23 +780,23 @@ async def photon_pharmacies(lat: float, lon: float) -> list[dict]:
     deadline = loop.time() + PHOTON_BUDGET_S
     found: dict[str, dict] = {}
     ok = False
-    async with aiohttp.ClientSession(headers={"User-Agent": USER_AGENT}) as s:
-        for q in PHOTON_QUERIES:
-            left = deadline - loop.time()
-            if left <= 0.2:
-                break
-            params = {"q": q, "lat": f"{lat}", "lon": f"{lon}", "limit": "50",
-                      "bbox": f"{w:.5f},{s_:.5f},{e:.5f},{n:.5f}", "osm_tag": "amenity:pharmacy"}
-            try:
-                async with s.get(PHOTON_URL, params=params,
-                                 timeout=aiohttp.ClientTimeout(total=left)) as r:
-                    if r.status != 200:
-                        continue
-                    for p in parse_photon(await r.json(content_type=None)):
-                        found.setdefault(p["id"], p)
-                    ok = True
-            except Exception as e:
-                log.info("Photon «%s»: %r", q, e)
+    for q in PHOTON_QUERIES:
+        left = deadline - loop.time()
+        if left <= 0.2:
+            break
+        params = {"q": q, "lat": f"{lat}", "lon": f"{lon}", "limit": "50",
+                  "bbox": f"{w:.5f},{s_:.5f},{e:.5f},{n:.5f}", "osm_tag": "amenity:pharmacy"}
+        try:
+            status, js = await asyncio.wait_for(
+                fetch_json("GET", PHOTON_URL, params=params, headers={"User-Agent": USER_AGENT},
+                           timeout=left), left)
+            if status != 200:
+                continue
+            for p in parse_photon(js):
+                found.setdefault(p["id"], p)
+            ok = True
+        except Exception as e:
+            log.info("Photon «%s»: %r", q, e)
     if not ok:
         raise RuntimeError("Photon недоступен")
     return list(found.values())
