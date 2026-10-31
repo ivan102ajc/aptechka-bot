@@ -1267,10 +1267,16 @@ async def main() -> None:
     # если бот уже переехал в облако (Telegram шлёт сообщения туда), второй экземпляр не нужен
     info = await bot.get_webhook_info()
     if info.url:
-        log.error("Бот @%s уже работает в облаке (%s). Запускать его на компьютере не нужно — "
-                  "окно можно закрыть.", me.username, info.url)
-        await bot.session.close()
-        return
+        log.warning("Бот @%s сейчас подключён к облаку (%s).", me.username, info.url)
+        print("\nЕсли облачная версия работает — просто закройте это окно.")
+        print("Если облако не отвечает и бота нужно вернуть на этот компьютер, введите Y и нажмите Enter.")
+        answer = await asyncio.to_thread(input, "Вернуть бота на компьютер? [Y/N]: ")
+        if answer.strip().lower() not in ("y", "д", "да", "yes"):
+            await bot.session.close()
+            return
+        await bot.delete_webhook()
+        log.info("Готово: бот снова работает на этом компьютере. "
+                 "Не включайте таймер в облаке, пока работает это окно.")
     log.info("Бот @%s запущен (версия %s). Чтобы остановить — нажмите Ctrl+C.", me.username, BOT_VERSION)
     log.info("ВАЖНО: держите открытым только ОДНО такое окно, иначе бот будет работать неправильно.")
     await announce_update(bot)
