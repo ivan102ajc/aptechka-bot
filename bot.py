@@ -13,6 +13,7 @@ import math
 import os
 import re
 import sqlite3
+import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote_plus
@@ -45,7 +46,9 @@ WHATS_NEW = (
     "• 📍 Поиск аптек работает через российский сервер карт\n\n"
     "Новые кнопки уже внизу экрана 👇"
 )
-DB_PATH = os.path.join(BASE_DIR, "medbot.db")
+# На сервере (Amvera) база лежит в постоянной папке /data, на компьютере — рядом с bot.py
+DATA_DIR = os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else BASE_DIR)
+DB_PATH = os.path.join(DATA_DIR, "medbot.db")
 DEFAULT_TZ_MIN = 180          # Москва, UTC+3
 REMIND_WINDOW_MIN = 30        # если бот был выключен, напомнит, если опоздал не больше чем на 30 мин
 SNOOZE_MIN = 15
@@ -1270,7 +1273,11 @@ async def main() -> None:
         log.warning("Бот @%s сейчас подключён к облаку (%s).", me.username, info.url)
         print("\nЕсли облачная версия работает — просто закройте это окно.")
         print("Если облако не отвечает и бота нужно вернуть на этот компьютер, введите Y и нажмите Enter.")
-        answer = await asyncio.to_thread(input, "Вернуть бота на компьютер? [Y/N]: ")
+        if sys.stdin is None or not sys.stdin.isatty():
+            answer = "y"          # сервер: спросить некого, забираем бота себе
+            log.info("Запуск на сервере — отключаю облачный вебхук автоматически.")
+        else:
+            answer = await asyncio.to_thread(input, "Вернуть бота на компьютер? [Y/N]: ")
         if answer.strip().lower() not in ("y", "д", "да", "yes"):
             await bot.session.close()
             return
