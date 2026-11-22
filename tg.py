@@ -208,11 +208,14 @@ class ReplyKeyboardMarkup:
 
 
 class InlineKeyboardButton:
-    def __init__(self, text: str, callback_data: str | None = None, url: str | None = None):
+    def __init__(self, text: str, callback_data: str | None = None, url: str | None = None,
+                 *, web_app_url: str | None = None):
         self.text, self.callback_data, self.url = text, callback_data, url
+        self.web_app = {"url": web_app_url} if web_app_url else None
 
     def to_dict(self):
-        return _clean({"text": self.text, "callback_data": self.callback_data, "url": self.url})
+        return _clean({"text": self.text, "callback_data": self.callback_data,
+                       "url": self.url, "web_app": self.web_app})
 
 
 class InlineKeyboardMarkup:

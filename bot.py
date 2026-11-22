@@ -42,6 +42,7 @@ WHATS_NEW = (
 # На сервере (Amvera) база лежит в постоянной папке /data, на компьютере — рядом с bot.py
 DATA_DIR = os.getenv("DATA_DIR") or ("/data" if os.path.isdir("/data") else BASE_DIR)
 DB_PATH = os.path.join(DATA_DIR, "medbot.db")
+MINI_APP_URL = os.getenv("MINI_APP_URL", "").strip()
 DEFAULT_TZ_MIN = 180          # Москва, UTC+3
 REMIND_WINDOW_MIN = 30        # если бот был выключен, напомнит, если опоздал не больше чем на 30 мин
 SNOOZE_MIN = 15
@@ -253,8 +254,9 @@ BTN_PHARM = "📍 Аптеки рядом"
 BTN_ANALOG = "🔄 Найти аналог"
 BTN_HISTORY = "📊 История приёма"
 BTN_SYMPTOM = "🩺 Подобрать по симптому"
+BTN_GAMES = "🎮 Игры про здоровье"
 BTN_CANCEL = "❌ Отмена"
-MENU = {BTN_ADD, BTN_LIST, BTN_PHARM, BTN_ANALOG, BTN_HISTORY, BTN_SYMPTOM, BTN_CANCEL}
+MENU = {BTN_ADD, BTN_LIST, BTN_PHARM, BTN_ANALOG, BTN_HISTORY, BTN_SYMPTOM, BTN_GAMES, BTN_CANCEL}
 TEXT = F.text & ~F.text.in_(MENU)   # обычный текст, а не кнопка меню
 
 MAIN_KB = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
@@ -262,6 +264,8 @@ MAIN_KB = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
     [KeyboardButton(text=BTN_PHARM), KeyboardButton(text=BTN_ANALOG)],
     [KeyboardButton(text=BTN_SYMPTOM), KeyboardButton(text=BTN_HISTORY)],
 ])
+if MINI_APP_URL:
+    MAIN_KB.keyboard.append([KeyboardButton(text=BTN_GAMES)])
 CANCEL_KB = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[[KeyboardButton(text=BTN_CANCEL)]])
 LOCATION_KB = ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[
     [KeyboardButton(text="📍 Отправить мою геолокацию", request_location=True)],
@@ -328,6 +332,22 @@ async def cmd_start(msg: Message, state: FSMContext):
 @router.message(Command("help"))
 async def cmd_help(msg: Message):
     await msg.answer(HELP, reply_markup=MAIN_KB)
+
+
+@router.message(Command("games"))
+@router.message(F.text == BTN_GAMES)
+async def open_health_games(msg: Message):
+    if not MINI_APP_URL:
+        await msg.answer("Мини-игры пока недоступны.")
+        return
+    if msg.chat.type != "private":
+        await msg.answer("Чтобы играть, откройте личный чат с ботом и отправьте /games.")
+        return
+    markup = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Открыть мини-приложение", web_app_url=MINI_APP_URL),
+    ]])
+    await msg.answer("Мини-игры, полезные привычки и отметки самочувствия в «Моей аптечке».",
+                     reply_markup=markup)
 
 
 @router.message(F.text == BTN_CANCEL)
